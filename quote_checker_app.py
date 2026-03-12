@@ -1259,7 +1259,11 @@ if invoice_pdf is not None:
                     "invoice_import_rate_c_per_kwh": invoice_defaults.get("invoice_import_rate_c_per_kwh"),
                     "invoice_controlled_rate_c_per_kwh": invoice_defaults.get("invoice_controlled_rate_c_per_kwh"),
                     "invoice_fit_rate_c_per_kwh": invoice_defaults.get("invoice_fit_rate_c_per_kwh"),
-                    "invoice_supply_d_per_day": invoice_defaults.get("invoice_supply_d_per_day"),
+                    "invoice_supply_c_per_day": (
+                        _safe_float(invoice_defaults.get("invoice_supply_d_per_day"), 0.0) * 100.0
+                        if invoice_defaults.get("invoice_supply_d_per_day") is not None
+                        else None
+                    ),
                     "invoice_pages": invoice_defaults.get("invoice_pages"),
                     "invoice_text_chars": invoice_defaults.get("invoice_text_chars"),
                     "invoice_text_extract_ok": invoice_defaults.get("invoice_text_extract_ok"),
@@ -1291,6 +1295,7 @@ q = quote_defaults
 quoted_default_import_c = (_safe_float(q.get("import_rate_d_per_kwh"), 0.31) * 100.0) if q else 31.0
 quoted_default_fit_c = (_safe_float(q.get("fit_d_per_kwh"), 0.07) * 100.0) if q else 7.0
 quoted_default_supply_d = _safe_float(q.get("daily_supply_charge_d"), 1.20)
+quoted_default_supply_c = quoted_default_supply_d * 100.0
 default_system_cost = _safe_float(
     q.get("quote_cost_base_net_stc"),
     _safe_float(q.get("quote_total_cost"), 9790.0),
@@ -1305,14 +1310,14 @@ with rq1:
         st.session_state["quoted_general_rate_c"] = 0.0
         st.session_state["quoted_controlled_rate_c"] = 0.0
         st.session_state["quoted_fit_rate_c"] = 0.0
-        st.session_state["quoted_supply_d"] = 0.0
+        st.session_state["quoted_supply_c"] = 0.0
 with rq2:
     if st.button("Clear actual tariff inputs (set to 0)"):
         for _mode in ("manual", "invoice", "quoted"):
             st.session_state[f"actual_general_rate_{_mode}"] = 0.0
             st.session_state[f"actual_controlled_rate_{_mode}"] = 0.0
             st.session_state[f"actual_fit_rate_{_mode}"] = 0.0
-            st.session_state[f"actual_supply_d_{_mode}"] = 0.0
+            st.session_state[f"actual_supply_c_{_mode}"] = 0.0
 
 qt1, qt2, qt3, qt4 = st.columns(4)
 with qt1:
@@ -1340,13 +1345,14 @@ with qt3:
         key="quoted_fit_rate_c",
     )
 with qt4:
-    quoted_supply_d = st.number_input(
-        "Quoted daily supply charge ($/day)",
+    quoted_supply_c = st.number_input(
+        "Quoted daily supply charge (c/day)",
         min_value=0.0,
-        value=float(quoted_default_supply_d),
-        step=0.01,
-        key="quoted_supply_d",
+        value=float(quoted_default_supply_c),
+        step=0.1,
+        key="quoted_supply_c",
     )
+quoted_supply_d = float(quoted_supply_c) / 100.0
 
 invoice_has_any = any(
     invoice_defaults.get(k) is not None
@@ -1373,18 +1379,18 @@ if actual_tariff_source == "Invoice prefill" and invoice_has_any:
     actual_default_import_c = _safe_float(invoice_defaults.get("invoice_import_rate_c_per_kwh"), quoted_general_rate_c)
     actual_default_controlled_c = _safe_float(invoice_defaults.get("invoice_controlled_rate_c_per_kwh"), quoted_controlled_rate_c)
     actual_default_fit_c = _safe_float(invoice_defaults.get("invoice_fit_rate_c_per_kwh"), quoted_fit_rate_c)
-    actual_default_supply_d = _safe_float(invoice_defaults.get("invoice_supply_d_per_day"), quoted_supply_d)
+    actual_default_supply_c = _safe_float(invoice_defaults.get("invoice_supply_d_per_day"), quoted_supply_d) * 100.0
 elif actual_tariff_source == "Use quoted tariff":
     actual_default_import_c = float(quoted_general_rate_c)
     actual_default_controlled_c = float(quoted_controlled_rate_c)
     actual_default_fit_c = float(quoted_fit_rate_c)
-    actual_default_supply_d = float(quoted_supply_d)
+    actual_default_supply_c = float(quoted_supply_c)
 else:
     # Manual mode starts blank-ish (0.0) so users can enter their real tariff values cleanly.
     actual_default_import_c = 0.0
     actual_default_controlled_c = 0.0
     actual_default_fit_c = 0.0
-    actual_default_supply_d = 0.0
+    actual_default_supply_c = 0.0
 
 source_key = {
     "Manual entry": "manual",
@@ -1397,7 +1403,7 @@ actual_key_map = {
     "general": f"actual_general_rate_{source_key}",
     "controlled": f"actual_controlled_rate_{source_key}",
     "fit": f"actual_fit_rate_{source_key}",
-    "supply": f"actual_supply_d_{source_key}",
+    "supply": f"actual_supply_c_{source_key}",
 }
 if actual_key_map["general"] not in st.session_state:
     st.session_state[actual_key_map["general"]] = float(actual_default_import_c)
@@ -1406,14 +1412,14 @@ if actual_key_map["controlled"] not in st.session_state:
 if actual_key_map["fit"] not in st.session_state:
     st.session_state[actual_key_map["fit"]] = float(actual_default_fit_c)
 if actual_key_map["supply"] not in st.session_state:
-    st.session_state[actual_key_map["supply"]] = float(actual_default_supply_d)
+    st.session_state[actual_key_map["supply"]] = float(actual_default_supply_c)
 
 # Keep "Use quoted tariff" truly linked to quoted inputs.
 if actual_tariff_source == "Use quoted tariff":
     st.session_state[actual_key_map["general"]] = float(quoted_general_rate_c)
     st.session_state[actual_key_map["controlled"]] = float(quoted_controlled_rate_c)
     st.session_state[actual_key_map["fit"]] = float(quoted_fit_rate_c)
-    st.session_state[actual_key_map["supply"]] = float(quoted_supply_d)
+    st.session_state[actual_key_map["supply"]] = float(quoted_supply_c)
 
 at1, at2, at3, at4 = st.columns(4)
 with at1:
@@ -1444,14 +1450,15 @@ with at3:
         key=f"actual_fit_rate_{source_key}",
     )
 with at4:
-    supply_d = st.number_input(
-        "Actual daily supply charge ($/day)",
+    supply_c = st.number_input(
+        "Actual daily supply charge (c/day)",
         min_value=0.0,
-        value=float(actual_default_supply_d),
-        step=0.01,
+        value=float(actual_default_supply_c),
+        step=0.1,
         disabled=disable_actual,
-        key=f"actual_supply_d_{source_key}",
+        key=f"actual_supply_c_{source_key}",
     )
+supply_d = float(supply_c) / 100.0
 
 quoted_plan = FlatPlan(
     general_c_per_kwh=float(quoted_general_rate_c),
@@ -1588,9 +1595,9 @@ tariff_compare_rows = [
         "Actual": float(plan.feed_in_c_per_kwh),
     },
     {
-        "Tariff component": "Daily supply ($/day)",
-        "Quoted": float(quoted_plan.supply_d_per_day),
-        "Actual": float(plan.supply_d_per_day),
+        "Tariff component": "Daily supply (c/day)",
+        "Quoted": float(quoted_plan.supply_d_per_day) * 100.0,
+        "Actual": float(plan.supply_d_per_day) * 100.0,
     },
 ]
 tariff_compare_df = pd.DataFrame(tariff_compare_rows)
@@ -2358,15 +2365,19 @@ assumptions = {
     "Actual effective import c/kWh (used for quote-style)": plan.general_c_per_kwh,
     "Actual controlled c/kWh": tariff_cfg.controlled_c_per_kwh,
     "Actual FiT c/kWh": tariff_cfg.fit_c_per_kwh,
-    "Actual supply $/day": tariff_cfg.supply_d_per_day,
+    "Actual supply c/day": tariff_cfg.supply_d_per_day * 100.0,
     "Quoted flat import c/kWh": quoted_plan.general_c_per_kwh,
     "Quoted controlled c/kWh": quoted_plan.controlled_c_per_kwh,
     "Quoted FiT c/kWh": quoted_plan.feed_in_c_per_kwh,
-    "Quoted supply $/day": quoted_plan.supply_d_per_day,
+    "Quoted supply c/day": quoted_plan.supply_d_per_day * 100.0,
     "Invoice extracted import c/kWh": invoice_defaults.get("invoice_import_rate_c_per_kwh"),
     "Invoice extracted controlled c/kWh": invoice_defaults.get("invoice_controlled_rate_c_per_kwh"),
     "Invoice extracted FiT c/kWh": invoice_defaults.get("invoice_fit_rate_c_per_kwh"),
-    "Invoice extracted supply $/day": invoice_defaults.get("invoice_supply_d_per_day"),
+    "Invoice extracted supply c/day": (
+        _safe_float(invoice_defaults.get("invoice_supply_d_per_day"), 0.0) * 100.0
+        if invoice_defaults.get("invoice_supply_d_per_day") is not None
+        else None
+    ),
     "Invoice pages": invoice_defaults.get("invoice_pages"),
     "Invoice text chars": invoice_defaults.get("invoice_text_chars"),
     "Invoice text extract ok": invoice_defaults.get("invoice_text_extract_ok"),
