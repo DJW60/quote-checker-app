@@ -7,7 +7,6 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -2305,34 +2304,34 @@ plot_df = pd.DataFrame(savings_plot).set_index("Year")
 
 
 def _line_chart_full_legend(df_wide: pd.DataFrame, chart_title: str, y_axis_title: str) -> None:
-    series_order = list(df_wide.columns)
-    long_df = df_wide.reset_index().melt(id_vars="Year", var_name="Series", value_name="Value")
-    chart = (
-        alt.Chart(long_df)
-        .mark_line()
-        .encode(
-            x=alt.X("Year:Q", title="Year"),
-            y=alt.Y("Value:Q", title=y_axis_title),
-            color=alt.Color(
-                "Series:N",
-                sort=series_order,
-                legend=alt.Legend(
-                    title=None,
-                    orient="bottom",
-                    direction="vertical",
-                    labelLimit=2000,
-                    symbolLimit=20,
-                ),
-            ),
-            tooltip=[
-                alt.Tooltip("Year:Q", format=".0f"),
-                alt.Tooltip("Series:N"),
-                alt.Tooltip("Value:Q", format=",.2f"),
-            ],
-        )
-        .properties(title=chart_title)
+    try:
+        import matplotlib.pyplot as plt
+    except Exception:
+        st.error("Matplotlib is required to render this chart.")
+        st.dataframe(df_wide, use_container_width=True)
+        return
+
+    x_vals = pd.to_numeric(pd.Index(df_wide.index), errors="coerce")
+    fig, ax = plt.subplots(figsize=(11, 4.8))
+    for col in df_wide.columns:
+        y_vals = pd.to_numeric(df_wide[col], errors="coerce")
+        ax.plot(x_vals, y_vals, label=str(col), linewidth=2.0)
+
+    ax.set_title(chart_title)
+    ax.set_xlabel("Year")
+    ax.set_ylabel(y_axis_title)
+    ax.grid(True, alpha=0.3)
+    ax.margins(x=0.02)
+    ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.22),
+        ncol=1,
+        frameon=False,
+        fontsize=9,
     )
-    st.altair_chart(chart, use_container_width=True)
+    fig.tight_layout()
+    st.pyplot(fig, use_container_width=True)
+    plt.close(fig)
 
 
 _line_chart_full_legend(
